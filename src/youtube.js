@@ -17,6 +17,36 @@
 const userAgent =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 
+async function postInnertubePlayer({
+  videoId,
+  endpoint = "https://music.youtube.com/youtubei/v1/player",
+  clientName,
+  clientVersion,
+  extraBody = {},
+}) {
+  const body = {
+    videoId,
+    ...extraBody,
+    context: {
+      client: {
+        clientName,
+        clientVersion,
+      },
+    },
+  };
+
+  const res = await fetch(endpoint, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "User-Agent": userAgent,
+    },
+    body: JSON.stringify(body),
+  });
+
+  return res.json();
+}
+
 const scrap = async (url, agent = "chrome") => {
   let agents = {
     chrome: {
@@ -1404,26 +1434,66 @@ export const getAlbum = async (id) => {
   }
 };
 
+// --- reemplazar tu `requestPlayer` por este ---
 const requestPlayer = async (id) => {
-  const response = await fetch("https://music.youtube.com/youtubei/v1/player", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "User-Agent": userAgent,
-    },
-    body: JSON.stringify({
-      videoId: id,
-      isAudioOnly: true,
-      context: {
-        client: {
-          clientName: "WEB_REMIX",
-          clientVersion: "1.20241106.01.00",
-        },
-      },
-    }),
+  // 1) WEB_REMIX (YouTube Music) – flujo actual
+  const webRemix = await postInnertubePlayer({
+    videoId: id,
+    endpoint: "https://music.youtube.com/youtubei/v1/player",
+    clientName: "WEB_REMIX",
+    clientVersion: "1.20241106.01.00",
+    extraBody: { isAudioOnly: true },
   });
-  const data = await response.json();
-  return data;
+
+  const okRemix =
+    webRemix?.playabilityStatus?.status === "OK" && !!webRemix?.streamingData;
+  if (okRemix) return webRemix;
+
+  // 2) MWEB (YouTube móvil) – fallback principal
+  const mweb = await postInnertubePlayer({
+    videoId: id,
+    endpoint: "https://www.youtube.com/youtubei/v1/player",
+    clientName: "MWEB",
+    clientVersion: "2.20241106.00.00",
+  });
+  const okMweb =
+    mweb?.playabilityStatus?.status === "OK" && !!mweb?.streamingData;
+  if (okMweb) {
+    webRemix.playabilityStatus = mweb.playabilityStatus;
+    webRemix.streamingData = mweb.streamingData;
+    return webRemix;
+  }
+
+  // 3) WEB (YouTube desktop)
+  const web = await postInnertubePlayer({
+    videoId: id,
+    endpoint: "https://www.youtube.com/youtubei/v1/player",
+    clientName: "WEB",
+    clientVersion: "2.20241106.00.00",
+  });
+  const okWeb = web?.playabilityStatus?.status === "OK" && !!web?.streamingData;
+  if (okWeb) {
+    webRemix.playabilityStatus = web.playabilityStatus;
+    webRemix.streamingData = web.streamingData;
+    return webRemix;
+  }
+
+  // 4) WEB_EMBEDDED (último recurso)
+  const embed = await postInnertubePlayer({
+    videoId: id,
+    endpoint: "https://www.youtube.com/youtubei/v1/player",
+    clientName: "WEB_EMBEDDED_PLAYER",
+    clientVersion: "2.20241106.00.00",
+  });
+  const okEmbed =
+    embed?.playabilityStatus?.status === "OK" && !!embed?.streamingData;
+  if (okEmbed) {
+    webRemix.playabilityStatus = embed.playabilityStatus;
+    webRemix.streamingData = embed.streamingData;
+  }
+
+  // devolvemos el objeto base (con o sin streams) para mantener compatibilidad
+  return webRemix;
 };
 
 export const getTrackData = async (id) => {
