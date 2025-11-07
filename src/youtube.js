@@ -1445,10 +1445,6 @@ const requestPlayer = async (id) => {
     extraBody: { isAudioOnly: true },
   });
 
-  const okRemix =
-    webRemix?.playabilityStatus?.status === "OK" && !!webRemix?.streamingData;
-  if (okRemix) return webRemix;
-
   // 2) MWEB (YouTube móvil) – fallback principal
   const mweb = await postInnertubePlayer({
     videoId: id,
