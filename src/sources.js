@@ -122,6 +122,14 @@ const TVHTML5_CONTEXT = {
     },
 };
 
+const MWEB_CONTEXT = {
+    client: {
+        clientName: "MWEB",
+        clientVersion: "2.20241106.00.00",
+        ...LOCALE,
+    },
+};
+
 const ANDROID_CLIENT_VERSION = "19.44.38",
     ANDROID_OS_VERSION = "11",
     ANDROID_SDK_VERSION = "30";
@@ -282,6 +290,7 @@ const getWatchHTMLRaw = async (id, options) => {
 
 
 export const getData = async (videoId, options = {}) => {
+    console.warn('1');
     utils.applyIPv6Rotations(options);
     utils.applyDefaultHeaders(options);
 
@@ -297,7 +306,7 @@ export const getData = async (videoId, options = {}) => {
     if (!info.html5player) {
         throw Error("Unable to find html5player file");
     }
-
+    console.warn('2');
     info.html5player = new URL(info.html5player, BASE_URL).toString();
 
     // Use cached playback context if available
@@ -306,7 +315,7 @@ export const getData = async (videoId, options = {}) => {
     }
 
     const playerContext = cachedPlaybackContexts[info.html5player];
-
+    console.warn('3');
     const payload = {
         context: TVHTML5_CONTEXT,
         videoId,
@@ -318,15 +327,27 @@ export const getData = async (videoId, options = {}) => {
         options.visitorId = await getVisitorDataWithCache(videoId, options, info.html5player);
     }
 
-    let response = await playerAPI(videoId, payload, options);
+    // let response = await playerAPI(videoId, payload, options);
     let isFallback = false
+    console.warn('4');
+    // 1) si viene UNPLAYABLE, probá WEB_EMBEDDED (tu lógica actual)
+    console.warn('trying WEB_EMBEDDED_CONTEXT');
+    response = await playerAPI(videoId, { ...payload, context: WEB_EMBEDDED_CONTEXT }, options);
+    console.warn('WEB_EMBEDDED_CONTEXT', { ...payload, context: WEB_EMBEDDED_CONTEXT });
 
-    if (response?.playabilityStatus?.status === 'UNPLAYABLE') {
-        response = await playerAPI(videoId, {
-            ...payload,
-            context: WEB_EMBEDDED_CONTEXT
-        }, options);
-    }
+
+    console.warn('trying MWEB_CONTEXT');
+    const mweb = await playerAPI(videoId, {
+        ...payload,
+        context: MWEB_CONTEXT,               // <-- cambio de client
+        // si querés, podés omitir playbackContext acá;
+        // si lo mantenés, suele funcionar igual
+    }, options);
+
+    // pisamos lo crítico con lo de MWEB (clave del fix)
+    response.playabilityStatus = mweb.playabilityStatus;
+    response.streamingData = mweb.streamingData;
+
 
     const formatsRaw = parseFormats(response);
     const formatsObject = await decipherFormats(formatsRaw, info.html5player, options);
